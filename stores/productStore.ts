@@ -1,112 +1,66 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Product, ProductCreateInput, ProductUpdateInput } from '@/types/product'
-
-const API_BASE = import.meta.env.VITE_API_URL || ''
+import { loadProducts, saveProducts } from '@/utils/storage'
+import { isFirstLaunch, markAsLaunched } from '@/utils/firstLaunch'
+import { presetProducts } from '@/presets/products'
 
 export const useProductStore = defineStore('product', () => {
   const products = ref<Product[]>([])
-  const isLoading = ref(false)
-  const isConnected = ref(false)
-  const isOnline = ref(navigator.onLine)
 
   const completedCount = computed(() => products.value.filter(p => p.completed).length)
   const pendingCount = computed(() => products.value.filter(p => !p.completed).length)
 
-  async function initData(): Promise<void> {
-    isLoading.value = true
-    try {
-      await loadFromServer()
-    } catch (error) {
-      console.error('Failed to initialize data:', error)
-    } finally {
-      isLoading.value = false
+  function initData(): void {
+    if (isFirstLaunch()) {
+      products.value = [...presetProducts]
+      markAsLaunched()
+      saveProducts(products.value)
+    } else {
+      products.value = loadProducts()
     }
   }
 
-  async function loadFromServer(): Promise<void> {
-    try {
-      const response = await fetch(`${API_BASE}/api/products`)
-      if (response.ok) {
-        products.value = await response.json()
-        isConnected.value = true
-      }
-    } catch (error) {
-      console.error('Failed to load products:', error)
-      isConnected.value = false
+  function addProduct(input: ProductCreateInput): void {
+    const now = Date.now()
+    const newProduct: Product = {
+      ...input,
+      id: `prod-${now}`,
+      completed: false,
+      createdAt: now,
+      updatedAt: now,
+      isPreset: false
     }
+    products.value.unshift(newProduct)
+    saveProducts(products.value)
   }
 
-  async function addProduct(input: ProductCreateInput): Promise<void> {
-    isLoading.value = true
-    try {
-      const response = await fetch(`${API_BASE}/api/products`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(input)
-      })
-      if (response.ok) {
-        const newProduct = await response.json()
-        products.value.unshift(newProduct)
-      } else {
-        throw new Error('Failed to add product')
-      }
-    } catch (error) {
-      console.error('Failed to add product:', error)
-      throw error
-    } finally {
-      isLoading.value = false
+  function updateProduct(id: string, updates: ProductUpdateInput): void {
+    const index = products.value.findIndex(p => p.id === id)
+    if (index === -1) return
+
+    const shouldClearPreset = updates.chineseName !== undefined || updates.image !== undefined
+
+    products.value[index] = {
+      ...products.value[index],
+      ...updates,
+      updatedAt: Date.now(),
+      isPreset: shouldClearPreset ? false : products.value[index].isPreset
     }
+    saveProducts(products.value)
   }
 
-  async function updateProduct(id: string, updates: ProductUpdateInput): Promise<void> {
-    isLoading.value = true
-    try {
-      const response = await fetch(`${API_BASE}/api/products?id=${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates)
-      })
-      if (response.ok) {
-        const updated = await response.json()
-        const index = products.value.findIndex(p => p.id === id)
-        if (index !== -1) {
-          products.value[index] = updated
-        }
-      } else {
-        throw new Error('Failed to update product')
-      }
-    } catch (error) {
-      console.error('Failed to update product:', error)
-      throw error
-    } finally {
-      isLoading.value = false
-    }
+  function deleteProduct(id: string): void {
+    products.value = products.value.filter(p => p.id !== id)
+    saveProducts(products.value)
   }
 
-  async function deleteProduct(id: string): Promise<void> {
-    isLoading.value = true
-    try {
-      const response = await fetch(`${API_BASE}/api/products?id=${id}`, {
-        method: 'DELETE'
-      })
-      if (response.ok) {
-        products.value = products.value.filter(p => p.id !== id)
-      } else {
-        throw new Error('Failed to delete product')
-      }
-    } catch (error) {
-      console.error('Failed to delete product:', error)
-      throw error
-    } finally {
-      isLoading.value = false
-    }
-  }
-
-  async function toggleComplete(id: string): Promise<void> {
+  function toggleComplete(id: string): void {
     const product = products.value.find(p => p.id === id)
     if (product) {
-      await updateProduct(id, { completed: !product.completed })
+      product.completed = !product.completed
+      product.updatedAt = Date.now()
+      saveProducts(products.value)
     }
   }
 
@@ -116,9 +70,6 @@ export const useProductStore = defineStore('product', () => {
 
   return {
     products,
-    isLoading,
-    isConnected,
-    isOnline,
     completedCount,
     pendingCount,
     initData,
