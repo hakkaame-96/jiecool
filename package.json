@@ -9,7 +9,6 @@
     "test": "vitest"
   },
   "dependencies": {
-    "@vercel/node": "^3.2.8",
     "pinia": "^2.1.7",
     "vant": "^4.9.0",
     "vue": "^3.4.21",
